@@ -546,6 +546,7 @@ dependencies = [
  "shell-words",
  "structopt",
  "tokio",
+ "tokio-util",
  "url",
  "warp",
  "which",

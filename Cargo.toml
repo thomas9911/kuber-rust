@@ -31,3 +31,6 @@ structopt = { version = "0.3", default-features = false}
 
 # command splitting
 shell-words = "1.0"
+
+# message streaming
+tokio-util = "0.6"

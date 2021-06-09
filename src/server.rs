@@ -1,15 +1,16 @@
 use futures::{FutureExt, StreamExt};
 use serde::{Deserialize, Serialize};
+
 // use serde_json::json;
 
-use std::time::SystemTime;
-// use tokio::time::sleep;
-use warp::filters::ws::Message as WebSocketMessage;
-use warp::filters::BoxedFilter;
-// use warp::http::Uri;
 use crate::commands;
 use std::net::SocketAddr;
+use std::time::SystemTime;
+use warp::filters::ws::Message as WebSocketMessage;
+use warp::filters::BoxedFilter;
 use warp::Filter;
+
+const FE: &'static str = include_str!("../web/dist/index.html");
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 struct MessageData {
@@ -65,6 +66,7 @@ fn map_error<T: std::fmt::Display>(
 
 async fn handle_request(
     request: Result<MessageData, warp::Error>,
+    // sink: S
 ) -> Result<MessageData, warp::Error> {
     match request {
         Err(e) => Err(e),
@@ -102,32 +104,7 @@ fn encode_outgoing(
         .map(|x| WebSocketMessage::text(serde_json::to_string(&x).expect("serialization failed")))
 }
 
-// fn websocket_mapper(incoming: Result<WebSocketMessage, warp::Error>) -> Result<WebSocketMessage, warp::Error> {
-//     if let Ok(incoming_message) = incoming {
-//         if let Ok(text_message) = incoming_message.to_str() {
-//             Ok(WebSocketMessage::text(
-//                 json!({"type": "echo", "message": text_message}
-//                 )
-//                 .to_string(),
-//             ))
-//         } else {
-//             Ok(WebSocketMessage::text(
-//                 json!({"type": "error", "message": "echo command failed"})
-//                     .to_string(),
-//             ))
-//         }
-
-//         // Ok(warp::reply::json(&json!({"type": "echo", "message": incoming_message.to_str()})))
-//     } else {
-//         incoming
-//     }
-// }
-
 fn routes() -> BoxedFilter<(impl warp::Reply,)> {
-    let hello = warp::path!("hello" / String)
-        .map(|name| format!("Hello, {}!", name))
-        .boxed();
-
     let websocket = warp::path("api").and(warp::ws()).map(|ws: warp::ws::Ws| {
         ws.on_upgrade(|websocket| {
             let (tx, rx) = websocket.split();
@@ -144,7 +121,9 @@ fn routes() -> BoxedFilter<(impl warp::Reply,)> {
         })
     });
 
-    hello.or(websocket).boxed()
+    let frontend = warp::any().map(|| warp::reply::html(FE));
+
+    websocket.or(frontend).boxed()
 }
 
 pub async fn server(addr: impl Into<SocketAddr>) {

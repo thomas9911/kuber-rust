@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, MutableRefObject } from "react";
 import { WebsocketBuilder, Websocket } from "websocket-ts";
 import AutoScroll from "@brianmcallister/react-auto-scroll";
-import { Box, Button, Menu, Grommet, Text } from "grommet";
+import { Anchor, Box, Button, Menu, Grommet, Text } from "grommet";
 
 interface WebSocketData {
   type: string;
@@ -24,6 +24,13 @@ const sendOnSocket = (
   };
   socket.send(JSON.stringify(data));
 };
+
+// regex from https://github.com/sindresorhus/linkify-urls
+const urlRegex = /((?<!\+)(?:https?(?::\/\/))(?:www\.)?(?:[a-zA-Z\d-_.]+(?:(?:\.|@)[a-zA-Z\d]{2,})|localhost)(?:(?:[-a-zA-Z\d:%_+.~#*$!?&//=@]*)(?:[,](?![\s]))*)*)/g;
+
+function linkify(text: string) {
+  return text.split(urlRegex).map((x, index) => index % 2 === 1 ? <Anchor target="_blank" href={x} label={x}/> : x)
+}
 
 const parseMessage = (
   data: unknown,
@@ -76,6 +83,12 @@ const requestHelp = (socketRef: SocketRef) => {
 const requestLs = (socketRef: SocketRef) => {
   if (socketRef.current) {
     sendOnSocket(socketRef.current, "ls", "sh");
+  }
+};
+
+const requestLogin = (socketRef: SocketRef) => {
+  if (socketRef.current) {
+    sendOnSocket(socketRef.current, "login", "sh");
   }
 };
 
@@ -147,7 +160,7 @@ const CommandOutput = ({ lines }: { lines: string[] }) => {
       {lines.map((msg) => {
         return (
           <Text key={msg} as="pre" size="small" margin="xsmall">
-            {msg}
+            {linkify(msg)}
           </Text>
         );
       })}
@@ -181,6 +194,7 @@ export const App = () => {
           <Button onClick={clearLines} label="CLEAR" size="large"></Button>
           <Button onClick={() => requestHelp(socketRef)} label="Help"></Button>
           <Button onClick={() => requestLs(socketRef)} label="List"></Button>
+          <Button onClick={() => requestLogin(socketRef)} label="Login"></Button>
         </Box>
       </Box>
     </Grommet>

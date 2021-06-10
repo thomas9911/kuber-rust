@@ -16,14 +16,31 @@ kubectx_wrapper() {
     fi
 }
 
+
+apps() {
+    echo "apps1"
+    echo "apps2"
+    echo "apps3"
+    echo "apps4"
+    echo "apps5"
+    echo "apps6"
+    echo "apps7"
+    echo "apps8"
+}
+
 list() {
-    echo "command1"
-    echo "command2"
-    echo "command3"
-    echo "command4"
-    echo "command5"
-    echo "command6"
-    echo "command7"
+    if [ -n "$1" ]; then
+        echo "command -> $1"
+    else
+        echo "command1"
+        echo "command2"
+        echo "command3"
+        echo "command4"
+        echo "command5"
+        echo "command6"
+        echo "command7"
+        echo "command8"
+    fi
 }
 
 cmd=$1
@@ -50,6 +67,10 @@ list)
 
 ls)
     list "$@"
+    ;;
+
+apps)
+    apps "$@"
     ;;
 
 ctx)

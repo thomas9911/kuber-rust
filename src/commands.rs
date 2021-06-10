@@ -1,3 +1,5 @@
+use crate::server::MessageData;
+
 use std::process::Stdio;
 
 use tokio::process::Command;
@@ -7,15 +9,18 @@ use tokio::time::timeout;
 use futures::stream::TryStreamExt;
 use std::time::Duration;
 use tokio_util::codec::{FramedRead, LinesCodec};
+use warp::filters::ws::Message as WebSocketMessage;
 
 const STATIC_BASH_SCRIPT: &'static str = include_str!(concat!(env!("OUT_DIR"), "/script.sh"));
+
+type Sender = tokio::sync::mpsc::Sender<WebSocketMessage>;
 
 #[cfg(windows)]
 const BASH_PATH: &'static str = "sh";
 #[cfg(unix)]
 const BASH_PATH: &'static str = "bash";
 
-async fn run_command(cmd: &mut Command) -> Result<String, Box<dyn std::error::Error>> {
+async fn run_command(cmd: &mut Command, sink: Sender, streaming: bool) -> Option<String> {
     let cmd = cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
     let mut child = cmd.spawn().expect("failed to spawn");
 
@@ -73,7 +78,21 @@ async fn run_command(cmd: &mut Command) -> Result<String, Box<dyn std::error::Er
 
     let mut lines = Vec::new();
     while let Ok(Ok(Some(x))) = timeout(Duration::from_secs(2), reader.try_next()).await {
-        lines.push(x)
+        lines.push(x.clone());
+        if streaming {
+            if let Err(_e) = sink
+                .send(
+                    MessageData {
+                        message: x,
+                        ..Default::default()
+                    }
+                    .as_websocket_message(),
+                )
+                .await
+            {
+                eprintln!("unable to put message on websocket")
+            }
+        }
     }
 
     // let mut buffer = String::new();
@@ -87,17 +106,21 @@ async fn run_command(cmd: &mut Command) -> Result<String, Box<dyn std::error::Er
     // let mut output = String::new();
     // reader.read_to_string(&mut output).unwrap();
     // Ok(output)
-    Ok(lines.join("\n"))
+    if streaming {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
 }
 
-pub async fn ls() -> Result<String, Box<dyn std::error::Error>> {
+pub async fn ls(sink: Sender) -> Option<String> {
     let mut cmd = Command::new("ls");
     let mut cmd = cmd.arg("-a");
-    run_command(&mut cmd).await
+    run_command(&mut cmd, sink, false).await
 }
 
-pub async fn bash_script(input: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let mut user_args = shell_words::split(input)?;
+pub async fn bash_script(input: &str, sink: Sender, streaming: bool) -> Option<String> {
+    let mut user_args = shell_words::split(input).ok()?;
     let mut args: Vec<String> = vec!["-c", STATIC_BASH_SCRIPT, "filename"]
         .into_iter()
         .map(String::from)
@@ -107,5 +130,5 @@ pub async fn bash_script(input: &str) -> Result<String, Box<dyn std::error::Erro
     let mut cmd = Command::new(BASH_PATH);
     let mut cmd = cmd.args(args);
 
-    run_command(&mut cmd).await
+    run_command(&mut cmd, sink, streaming).await
 }

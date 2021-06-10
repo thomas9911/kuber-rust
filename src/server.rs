@@ -1,5 +1,6 @@
-use futures::{FutureExt, StreamExt};
+use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 
 // use serde_json::json;
 
@@ -12,15 +13,17 @@ use warp::Filter;
 
 const FE: &'static str = include_str!("../web/dist/index.html");
 
+type Sender = tokio::sync::mpsc::Sender<WebSocketMessage>;
+
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
-struct MessageData {
-    message: String,
+pub struct MessageData {
+    pub message: String,
     #[serde(rename = "type")]
-    msg_type: MessageType,
-    meta: Option<String>,
+    pub msg_type: MessageType,
+    pub meta: Option<String>,
     // allow streaming response, otherwise collect all output before returning
-    streaming: bool,
+    pub streaming: bool,
 }
 
 impl Default for MessageData {
@@ -42,13 +45,25 @@ pub enum MessageType {
     Time,
     Ls,
     Sh,
+    Empty,
 }
 
 impl MessageData {
+    pub fn as_websocket_message(&self) -> WebSocketMessage {
+        WebSocketMessage::text(serde_json::to_string(self).expect("serialization failed"))
+    }
+
     pub fn new_error<T: std::fmt::Display>(message: T) -> MessageData {
         MessageData {
             message: message.to_string(),
             msg_type: MessageType::Error,
+            ..Default::default()
+        }
+    }
+
+    pub fn empty() -> MessageData {
+        MessageData {
+            msg_type: MessageType::Empty,
             ..Default::default()
         }
     }
@@ -63,24 +78,43 @@ fn decode_incoming(
     })
 }
 
-fn map_error<T: std::fmt::Display>(
-    res: Result<T, Box<dyn std::error::Error>>,
+// fn map_error<T: std::fmt::Display>(
+//     res: Result<T, Box<dyn std::error::Error>>,
+//     msg_type: MessageType,
+//     meta: Option<String>,
+// ) -> Result<MessageData, warp::Error> {
+//     match res {
+//         Err(e) => Ok(MessageData::new_error(e)),
+//         Ok(data) => Ok(MessageData {
+//             message: data.to_string(),
+//             msg_type,
+//             meta,
+//             ..Default::default()
+//         }),
+//     }
+// }
+
+fn map_option<T: std::fmt::Display>(
+    res: Option<T>,
     msg_type: MessageType,
     meta: Option<String>,
+    streaming: bool,
 ) -> Result<MessageData, warp::Error> {
     match res {
-        Err(e) => Ok(MessageData::new_error(e)),
-        Ok(data) => Ok(MessageData {
+        None => Ok(MessageData::empty()),
+        Some(data) => Ok(MessageData {
             message: data.to_string(),
             msg_type,
             meta,
+            streaming,
             ..Default::default()
         }),
     }
 }
 
-async fn handle_request(
+async fn handle_message(
     request: Result<MessageData, warp::Error>,
+    sink: Sender,
     // sink: S
 ) -> Result<MessageData, warp::Error> {
     match request {
@@ -102,14 +136,20 @@ async fn handle_request(
         Ok(MessageData {
             meta,
             msg_type: MessageType::Ls,
+            streaming,
             ..
-        }) => map_error(commands::ls().await, MessageType::Ls, meta),
+        }) => map_option(commands::ls(sink).await, MessageType::Ls, meta, streaming),
         Ok(MessageData {
             meta,
             msg_type: MessageType::Sh,
             message,
-            ..
-        }) => map_error(commands::bash_script(&message).await, MessageType::Sh, meta),
+            streaming,
+        }) => map_option(
+            commands::bash_script(&message, sink, streaming).await,
+            MessageType::Sh,
+            meta,
+            streaming,
+        ),
         Ok(msg) => Ok(msg),
     }
 }
@@ -117,26 +157,61 @@ async fn handle_request(
 fn encode_outgoing(
     outgoing: Result<MessageData, warp::Error>,
 ) -> Result<WebSocketMessage, warp::Error> {
-    outgoing
-        .map(|x| WebSocketMessage::text(serde_json::to_string(&x).expect("serialization failed")))
+    outgoing.map(|x| x.as_websocket_message())
+}
+
+async fn handle_ws_request(websocket: warp::filters::ws::WebSocket) {
+    let (mut ws_tx, ws_rx) = websocket.split();
+    let (tx, mut rx) = mpsc::channel::<WebSocketMessage>(100);
+
+    let tx_a = tx.clone();
+    let a = ws_rx
+        .map(decode_incoming)
+        .then(move |x| handle_message(x, tx_a.clone()))
+        .map(encode_outgoing);
+
+    let mut a = Box::pin(a);
+
+    tokio::spawn(async move {
+        while let Some(b) = a.next().await {
+            if let Ok(x) = b {
+                if let Err(e) = tx.send(x).await {
+                    eprintln!("websocket error: {:?}", e);
+                }
+            }
+        }
+    });
+
+    while let Some(i) = rx.recv().await {
+        if let Err(e) = ws_tx.send(i).await {
+            eprintln!("websocket error: {:?}", e);
+        }
+    }
+
+    // while let Some(b) = a.next().await {
+    //     // if let Ok(msg) = b {
+    //     //     if let Err(e) = ws_tx.send(msg).await {
+    //     //         eprintln!("websocket error: {:?}", e);
+    //     //     }
+    //     // } else {
+    //     //     eprintln!("websocket error: {:?}", e);
+    //     // }
+    //     match b {
+    //         Ok(msg) => {
+    //             println!("{:?}", msg);
+    //             if let Err(e) = ws_tx.send(msg).await {
+    //                 eprintln!("websocket error: {:?}", e);
+    //             }
+    //         }
+    //         Err(e) => eprintln!("websocket error: {:?}", e),
+    //     }
+    // }
 }
 
 fn routes() -> BoxedFilter<(impl warp::Reply,)> {
-    let websocket = warp::path("api").and(warp::ws()).map(|ws: warp::ws::Ws| {
-        ws.on_upgrade(|websocket| {
-            let (tx, rx) = websocket.split();
-
-            rx.map(decode_incoming)
-                .then(handle_request)
-                .map(encode_outgoing)
-                .forward(tx)
-                .map(|result| {
-                    if let Err(e) = result {
-                        eprintln!("websocket error: {:?}", e);
-                    }
-                })
-        })
-    });
+    let websocket = warp::path("api")
+        .and(warp::ws())
+        .map(|ws: warp::ws::Ws| ws.on_upgrade(handle_ws_request));
 
     let frontend = warp::any().map(|| warp::reply::html(FE));
 

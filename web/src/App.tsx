@@ -19,6 +19,7 @@ import defaultBlackTheme from "./theme.json";
 interface WebSocketData {
   type: string;
   message: string;
+  streaming: boolean;
   meta?: string;
 }
 
@@ -36,12 +37,14 @@ const sendOnSocket = (
   socket: Websocket,
   message: string,
   type: string = "echo",
-  meta?: string
+  streaming: boolean = true,
+  meta?: string,
 ) => {
   let data: WebSocketData = {
     message,
     type,
     meta,
+    streaming
   };
   socket.send(JSON.stringify(data));
 };
@@ -163,6 +166,10 @@ const onWebSocketMessage =
       return;
     }
 
+    if (data?.type === "empty") {
+      return
+    }
+
     if (newLines) {
       addLines(newLines);
     }
@@ -186,8 +193,8 @@ const useWebSocket = () => {
   useEffect(() => {
     if (active && socket) {
       // sendOnSocket(socket, "hallo from hook!!!");
-      sendOnSocket(socket, "ctx", "sh", "ctx-dropdown");
-      sendOnSocket(socket, "apps", "sh", "apps-dropdown");
+      sendOnSocket(socket, "ctx", "sh", false, "ctx-dropdown");
+      sendOnSocket(socket, "apps", "sh", false, "apps-dropdown");
       socketRef.current = socket;
     }
   }, [active]);

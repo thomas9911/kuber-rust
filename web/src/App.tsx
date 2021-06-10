@@ -1,7 +1,20 @@
 import React, { useEffect, useState, useRef, MutableRefObject } from "react";
 import { WebsocketBuilder, Websocket } from "websocket-ts";
 import AutoScroll from "@brianmcallister/react-auto-scroll";
-import { Anchor, Box, Button, Menu, Grommet, Text } from "grommet";
+import {
+  Anchor,
+  Box,
+  Button,
+  Menu,
+  Grommet,
+  Text,
+  Header,
+  Footer,
+  Main,
+  Clock,
+} from "grommet";
+// black theme from https://grommet-theme-builder.netlify.app/
+import defaultBlackTheme from "./theme.json";
 
 interface WebSocketData {
   type: string;
@@ -10,6 +23,14 @@ interface WebSocketData {
 }
 
 type SocketRef = MutableRefObject<Websocket | null>;
+
+// const myTheme = {
+//   global: {
+//     font: {
+//       family: 'Helvetica',
+//     },
+//   },
+// };
 
 const sendOnSocket = (
   socket: Websocket,
@@ -26,10 +47,15 @@ const sendOnSocket = (
 };
 
 // regex from https://github.com/sindresorhus/linkify-urls
-const urlRegex = /((?<!\+)(?:https?(?::\/\/))(?:www\.)?(?:[a-zA-Z\d-_.]+(?:(?:\.|@)[a-zA-Z\d]{2,})|localhost)(?:(?:[-a-zA-Z\d:%_+.~#*$!?&//=@]*)(?:[,](?![\s]))*)*)/g;
+const urlRegex =
+  /((?<!\+)(?:https?(?::\/\/))(?:www\.)?(?:[a-zA-Z\d-_.]+(?:(?:\.|@)[a-zA-Z\d]{2,})|localhost)(?:(?:[-a-zA-Z\d:%_+.~#*$!?&//=@]*)(?:[,](?![\s]))*)*)/g;
 
 function linkify(text: string) {
-  return text.split(urlRegex).map((x, index) => index % 2 === 1 ? <Anchor target="_blank" href={x} label={x}/> : x)
+  return text
+    .split(urlRegex)
+    .map((x, index) =>
+      index % 2 === 1 ? <Anchor target="_blank" href={x} label={x} /> : x
+    );
 }
 
 const parseMessage = (
@@ -72,8 +98,6 @@ const createSocket = (
   return socket;
 };
 
-
-
 const requestHelp = (socketRef: SocketRef) => {
   if (socketRef.current) {
     sendOnSocket(socketRef.current, "help", "sh");
@@ -83,6 +107,12 @@ const requestHelp = (socketRef: SocketRef) => {
 const requestLs = (socketRef: SocketRef) => {
   if (socketRef.current) {
     sendOnSocket(socketRef.current, "ls", "sh");
+  }
+};
+
+const requestLsApp = (app: string, socketRef: SocketRef) => {
+  if (socketRef.current) {
+    sendOnSocket(socketRef.current, `ls ${app}`, "sh");
   }
 };
 
@@ -107,7 +137,8 @@ const requestContext = (socketRef: SocketRef, ctx: string) => {
 const onWebSocketMessage =
   (
     setLines: React.Dispatch<React.SetStateAction<string[]>>,
-    setContexts: React.Dispatch<React.SetStateAction<string[]>>
+    setContexts: React.Dispatch<React.SetStateAction<string[]>>,
+    setApps: React.Dispatch<React.SetStateAction<string[]>>
   ) =>
   (data: WebSocketData | null) => {
     const addLines = (extraLines: string[]) => {
@@ -124,6 +155,14 @@ const onWebSocketMessage =
       return;
     }
 
+    if (data?.meta === "apps-dropdown") {
+      // addLines(["from dropdown!!!"]);
+      if (newLines) {
+        setApps(newLines);
+      }
+      return;
+    }
+
     if (newLines) {
       addLines(newLines);
     }
@@ -132,6 +171,7 @@ const onWebSocketMessage =
 const useWebSocket = () => {
   const [active, setActive] = useState(false);
   const [contexts, setContexts] = useState<string[]>([]);
+  const [apps, setApps] = useState<string[]>([]);
   const boxRef = useRef(null);
   const socketRef: MutableRefObject<Websocket | null> = useRef(null);
   const [lines, setLines] = useState<string[]>([]);
@@ -140,31 +180,34 @@ const useWebSocket = () => {
     createSocket(
       setActive,
       console.error,
-      onWebSocketMessage(setLines, setContexts)
+      onWebSocketMessage(setLines, setContexts, setApps)
     )
   );
   useEffect(() => {
     if (active && socket) {
       // sendOnSocket(socket, "hallo from hook!!!");
       sendOnSocket(socket, "ctx", "sh", "ctx-dropdown");
+      sendOnSocket(socket, "apps", "sh", "apps-dropdown");
       socketRef.current = socket;
     }
   }, [active]);
 
-  return { socketRef, lines, clearLines: () => setLines([]), contexts };
+  return { socketRef, lines, apps, clearLines: () => setLines([]), contexts };
 };
 
 const CommandOutput = ({ lines }: { lines: string[] }) => {
   return (
-    <AutoScroll height={800} showOption={false}>
-      {lines.map((msg) => {
-        return (
-          <Text key={msg} as="pre" size="small" margin="xsmall">
-            {linkify(msg)}
-          </Text>
-        );
-      })}
-    </AutoScroll>
+    <Main>
+      <AutoScroll height={800} showOption={false}>
+        {lines.map((msg) => {
+          return (
+            <Text key={msg} as="pre" size="small" margin="xsmall">
+              {linkify(msg)}
+            </Text>
+          );
+        })}
+      </AutoScroll>
+    </Main>
   );
 };
 
@@ -173,13 +216,14 @@ const setContext = (ctx: string, socketRef: SocketRef) => {
 };
 
 export const App = () => {
-  const { socketRef, lines, clearLines, contexts } = useWebSocket();
+  const { socketRef, lines, apps, clearLines, contexts } = useWebSocket();
 
   return (
-    <Grommet plain>
-      <Box width="xlarge">
-        <Box direction="row-responsive" fill>
+    <Grommet background={{ color: "dark-1" }} theme={defaultBlackTheme as any}>
+      <Box width="xlarge" pad="medium">
+        <Header direction="row-responsive" fill>
           <h1>Kuber</h1>
+          <Clock type="digital" />
           <Menu
             label="Switch Context"
             items={contexts.map((ctx) => ({
@@ -187,15 +231,31 @@ export const App = () => {
               onClick: setContext(ctx, socketRef),
             }))}
           />
-        </Box>
+        </Header>
 
         <CommandOutput lines={lines} />
-        <Box direction="row-responsive" fill>
-          <Button onClick={clearLines} label="CLEAR" size="large"></Button>
-          <Button onClick={() => requestHelp(socketRef)} label="Help"></Button>
-          <Button onClick={() => requestLs(socketRef)} label="List"></Button>
-          <Button onClick={() => requestLogin(socketRef)} label="Login"></Button>
-        </Box>
+        <Footer>
+          <Box direction="row-responsive">
+            <Button onClick={clearLines} label="CLEAR" size="large"></Button>
+            <Button
+              onClick={() => requestHelp(socketRef)}
+              label="Help"
+            ></Button>
+            <Button onClick={() => requestLs(socketRef)} label="List"></Button>
+            <Button
+              onClick={() => requestLogin(socketRef)}
+              label="Login"
+            ></Button>
+          </Box>
+          <Menu
+            label="List app"
+            dropAlign={{ bottom: "top" }}
+            items={apps.map((app) => ({
+              label: app,
+              onClick: () => requestLsApp(app, socketRef),
+            }))}
+          />
+        </Footer>
       </Box>
     </Grommet>
   );

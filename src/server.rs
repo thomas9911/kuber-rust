@@ -13,11 +13,25 @@ use warp::Filter;
 const FE: &'static str = include_str!("../web/dist/index.html");
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 struct MessageData {
     message: String,
     #[serde(rename = "type")]
     msg_type: MessageType,
     meta: Option<String>,
+    // allow streaming response, otherwise collect all output before returning
+    streaming: bool,
+}
+
+impl Default for MessageData {
+    fn default() -> MessageData {
+        MessageData {
+            message: String::default(),
+            msg_type: MessageType::Echo,
+            meta: None,
+            streaming: true,
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -35,7 +49,7 @@ impl MessageData {
         MessageData {
             message: message.to_string(),
             msg_type: MessageType::Error,
-            meta: None,
+            ..Default::default()
         }
     }
 }
@@ -60,6 +74,7 @@ fn map_error<T: std::fmt::Display>(
             message: data.to_string(),
             msg_type,
             meta,
+            ..Default::default()
         }),
     }
 }
@@ -82,6 +97,7 @@ async fn handle_request(
                 .unwrap()
                 .as_secs()
                 .to_string(),
+            ..Default::default()
         }),
         Ok(MessageData {
             meta,
@@ -92,6 +108,7 @@ async fn handle_request(
             meta,
             msg_type: MessageType::Sh,
             message,
+            ..
         }) => map_error(commands::bash_script(&message).await, MessageType::Sh, meta),
         Ok(msg) => Ok(msg),
     }

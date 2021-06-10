@@ -2,8 +2,6 @@ use futures::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-// use serde_json::json;
-
 use crate::commands;
 use std::net::SocketAddr;
 use std::time::SystemTime;
@@ -78,22 +76,6 @@ fn decode_incoming(
     })
 }
 
-// fn map_error<T: std::fmt::Display>(
-//     res: Result<T, Box<dyn std::error::Error>>,
-//     msg_type: MessageType,
-//     meta: Option<String>,
-// ) -> Result<MessageData, warp::Error> {
-//     match res {
-//         Err(e) => Ok(MessageData::new_error(e)),
-//         Ok(data) => Ok(MessageData {
-//             message: data.to_string(),
-//             msg_type,
-//             meta,
-//             ..Default::default()
-//         }),
-//     }
-// }
-
 fn map_option<T: std::fmt::Display>(
     res: Option<T>,
     msg_type: MessageType,
@@ -115,7 +97,6 @@ fn map_option<T: std::fmt::Display>(
 async fn handle_message(
     request: Result<MessageData, warp::Error>,
     sink: Sender,
-    // sink: S
 ) -> Result<MessageData, warp::Error> {
     match request {
         Err(e) => Err(e),
@@ -187,25 +168,6 @@ async fn handle_ws_request(websocket: warp::filters::ws::WebSocket) {
             eprintln!("websocket error: {:?}", e);
         }
     }
-
-    // while let Some(b) = a.next().await {
-    //     // if let Ok(msg) = b {
-    //     //     if let Err(e) = ws_tx.send(msg).await {
-    //     //         eprintln!("websocket error: {:?}", e);
-    //     //     }
-    //     // } else {
-    //     //     eprintln!("websocket error: {:?}", e);
-    //     // }
-    //     match b {
-    //         Ok(msg) => {
-    //             println!("{:?}", msg);
-    //             if let Err(e) = ws_tx.send(msg).await {
-    //                 eprintln!("websocket error: {:?}", e);
-    //             }
-    //         }
-    //         Err(e) => eprintln!("websocket error: {:?}", e),
-    //     }
-    // }
 }
 
 fn routes() -> BoxedFilter<(impl warp::Reply,)> {

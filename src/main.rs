@@ -1,13 +1,7 @@
-use structopt::StructOpt;
-
 use serde::Serialize;
-// use serde_json::json;
-
-use url::Url;
-
 use std::net::SocketAddr;
-
-// type BoxError = Box<dyn std::error::Error + Send + Sync>;
+use structopt::StructOpt;
+use url::Url;
 
 const NAME: &'static str = env!("CARGO_PKG_NAME");
 // const VERSION: &'static str = env!("CARGO_PKG_VERSION");

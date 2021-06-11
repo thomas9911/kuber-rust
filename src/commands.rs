@@ -12,6 +12,7 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 use warp::filters::ws::Message as WebSocketMessage;
 
 const STATIC_BASH_SCRIPT: &'static str = include_str!(concat!(env!("OUT_DIR"), "/script.sh"));
+const NEW_LINE_TIMEOUT: u64 = 120;
 
 type Sender = tokio::sync::mpsc::Sender<WebSocketMessage>;
 
@@ -39,7 +40,7 @@ async fn run_command(cmd: &mut Command, sink: Sender, streaming: bool) -> Option
     });
 
     let mut lines = Vec::new();
-    while let Ok(Ok(Some(x))) = timeout(Duration::from_secs(2), reader.try_next()).await {
+    while let Ok(Ok(Some(x))) = timeout(Duration::from_secs(NEW_LINE_TIMEOUT), reader.try_next()).await {
         lines.push(x.clone());
         if streaming {
             if let Err(_e) = sink

@@ -1,5 +1,8 @@
+use futures::future::{abortable, AbortHandle};
 use futures::{SinkExt, StreamExt};
+
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 
 use crate::commands;
@@ -12,6 +15,7 @@ use warp::Filter;
 const FE: &'static str = include_str!("../web/dist/index.html");
 
 type Sender = tokio::sync::mpsc::Sender<WebSocketMessage>;
+type HandleContainer = Arc<Mutex<Vec<AbortHandle>>>;
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -170,14 +174,46 @@ async fn handle_ws_request(websocket: warp::filters::ws::WebSocket) {
     }
 }
 
+async fn abortable_handling(ws: warp::ws::WebSocket, handle_collection: HandleContainer) {
+    let (f, handle) = abortable(handle_ws_request(ws));
+
+    {
+        let mut lock = handle_collection.lock().unwrap();
+        lock.push(handle);
+    }
+
+    match f.await {
+        Ok(x) => x,
+        Err(e) => eprintln!("{}", e),
+    }
+}
+
 fn routes() -> BoxedFilter<(impl warp::Reply,)> {
-    let websocket = warp::path("api")
+    let handles = HandleContainer::default();
+
+    let cors = warp::cors().allow_any_origin().allow_methods(vec!["POST"]);
+
+    let handle_collection = handles.clone();
+    let websocket = warp::path!("api")
         .and(warp::ws())
-        .map(|ws: warp::ws::Ws| ws.on_upgrade(handle_ws_request));
+        .and(warp::any().map(move || handle_collection.clone()).boxed())
+        .map(|ws: warp::ws::Ws, handle_collection: HandleContainer| {
+            ws.on_upgrade(|x| abortable_handling(x, handle_collection))
+        });
 
     let frontend = warp::any().map(|| warp::reply::html(FE));
+    let flush = warp::path!("api" / "flush")
+        .and(warp::post())
+        .map(move || {
+            let lock = handles.lock().unwrap();
+            for abortable in lock.iter() {
+                abortable.abort()
+            }
+            "ok"
+        })
+        .with(cors);
 
-    websocket.or(frontend).boxed()
+    websocket.or(flush).or(frontend).boxed()
 }
 
 pub async fn server(addr: impl Into<SocketAddr>) {

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, MutableRefObject } from "react";
-import { Websocket, WebsocketBuilder } from "websocket-ts";
+import { ConstantBackoff, Websocket, WebsocketBuilder } from "websocket-ts";
+import { WS_ENDPOINT } from "./config";
 import { WebSocketData } from "./types";
 
 export const onWebSocketMessage =
@@ -82,7 +83,8 @@ export const createSocket = (
   errorLog: (msg: string) => void,
   onMessage: (data: WebSocketData | null) => void
 ): Websocket => {
-  const socket = new WebsocketBuilder("ws://localhost:9894/api")
+  const socket = new WebsocketBuilder(WS_ENDPOINT)
+    .withBackoff(new ConstantBackoff(100))
     .onOpen((soc, event) => {
       setActive(true);
       sendOnSocket(soc, "Connected to server");

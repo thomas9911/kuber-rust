@@ -1,10 +1,6 @@
 import React from "react";
 import AutoScroll from "@brianmcallister/react-auto-scroll";
-import {
-  Anchor,
-  Text,
-  Main,
-} from "grommet";
+import { Anchor, Text, Main } from "grommet";
 
 // regex from https://github.com/sindresorhus/linkify-urls
 const urlRegex =

@@ -1,21 +1,15 @@
 import React from "react";
-import {
-  Box,
-  Button,
-  Menu,
-  Grommet,
-  Header,
-  Footer,
-  Clock,
-} from "grommet";
+import { Box, Button, Menu, Grommet, Header, Footer, Clock } from "grommet";
 
 // black theme from https://grommet-theme-builder.netlify.app/
 import defaultBlackTheme from "./theme.json";
 import { useWebSocket } from "./websocket";
 import { SocketRef } from "./types";
 import {
+  flush,
   requestContext,
   requestHelp,
+  requestLogApp,
   requestLogin,
   requestLs,
   requestLsApp,
@@ -32,6 +26,12 @@ import { CommandOutput } from "./CommandOutput";
 
 const setContext = (ctx: string, socketRef: SocketRef) => {
   return () => requestContext(socketRef, ctx);
+};
+
+const reconnectWebsocket = (socketRef: SocketRef) => {
+  if (socketRef.current) {
+    socketRef.current.underlyingWebsocket?.close(1000);
+  }
 };
 
 export const App = () => {
@@ -65,6 +65,12 @@ export const App = () => {
               onClick={() => requestLogin(socketRef)}
               label="Login"
             ></Button>
+            <Button
+              onClick={() => {
+                flush().then(() => reconnectWebsocket(socketRef));
+              }}
+              label="Cancel"
+            ></Button>
           </Box>
           <Menu
             label="List app"
@@ -72,6 +78,14 @@ export const App = () => {
             items={apps.map((app) => ({
               label: app,
               onClick: () => requestLsApp(app, socketRef),
+            }))}
+          />
+          <Menu
+            label="Log app"
+            dropAlign={{ bottom: "top" }}
+            items={apps.map((app) => ({
+              label: app,
+              onClick: () => requestLogApp(app, socketRef),
             }))}
           />
         </Footer>

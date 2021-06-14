@@ -130,10 +130,12 @@ async fn main() {
     }
 
     // if open::that(" ewrfowekn flke flwefk lkwef ").is_err() {
-    if !config.skip_open && open::that(config.frontend.unwrap().to_string()).is_err() {
+    if !config.skip_open
+        && open::that(config.frontend.expect("resolve not called").to_string()).is_err()
+    {
         error_popup("Unable to open the browser");
         return;
     };
 
-    server::server(config.server.unwrap()).await
+    server::server(config.server.expect("resolve not called")).await
 }
